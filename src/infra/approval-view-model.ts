@@ -70,6 +70,7 @@ function buildExecViewBase<TPhase extends ApprovalPhase>(
     agentId: request.request.agentId ?? null,
     warningText: request.request.warningText ?? null,
     commandAnalysis: request.request.commandAnalysis ?? null,
+    commandExplanationLines: request.request.commandExplanationLines,
     commandText,
     commandPreview,
     cwd: request.request.cwd ?? null,
