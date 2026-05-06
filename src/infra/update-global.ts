@@ -484,6 +484,44 @@ function resolvePreferredNpmCommand(pkgRoot?: string | null): string | null {
   return fsSync.existsSync(candidate) ? candidate : null;
 }
 
+function inferGlobalRootFromPackageRoot(pkgRoot?: string | null): string | null {
+  const trimmed = pkgRoot?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = path.resolve(trimmed);
+  const globalRoot = path.dirname(normalized);
+  return path.basename(globalRoot) === "node_modules" ? globalRoot : null;
+}
+
+export function resolvePnpmGlobalDirFromGlobalRoot(globalRoot?: string | null): string | null {
+  const trimmed = globalRoot?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = path.resolve(trimmed);
+  if (path.basename(normalized) !== "node_modules") {
+    return null;
+  }
+  const layoutDir = path.dirname(normalized);
+  return /^\d+$/u.test(path.basename(layoutDir)) ? path.dirname(layoutDir) : null;
+}
+
+async function isPnpmGlobalPackageRoot(pkgRoot?: string | null): Promise<boolean> {
+  const globalRoot = inferGlobalRootFromPackageRoot(pkgRoot);
+  if (!globalRoot) {
+    return false;
+  }
+  if (!resolvePnpmGlobalDirFromGlobalRoot(globalRoot)) {
+    return false;
+  }
+  const layoutDir = path.dirname(globalRoot);
+  return (
+    (await pathExists(path.join(layoutDir, "pnpm-lock.yaml"))) ||
+    (await pathExists(path.join(layoutDir, "package.json")))
+  );
+}
+
 function resolvePreferredGlobalManagerCommand(
   manager: GlobalInstallManager,
   pkgRoot?: string | null,
@@ -558,10 +596,15 @@ export async function resolveGlobalInstallTarget(params: {
     params.timeoutMs,
     params.pkgRoot,
   );
+  const pkgRootGlobalRoot =
+    command.manager === "pnpm" && (await isPnpmGlobalPackageRoot(params.pkgRoot))
+      ? inferGlobalRootFromPackageRoot(params.pkgRoot)
+      : null;
+  const targetGlobalRoot = pkgRootGlobalRoot ?? globalRoot;
   return {
     ...command,
-    globalRoot,
-    packageRoot: globalRoot ? path.join(globalRoot, PRIMARY_PACKAGE_NAME) : null,
+    globalRoot: targetGlobalRoot,
+    packageRoot: targetGlobalRoot ? path.join(targetGlobalRoot, PRIMARY_PACKAGE_NAME) : null,
   };
 }
 
@@ -597,6 +640,10 @@ export async function detectGlobalInstallManagerForRoot(
         return manager;
       }
     }
+  }
+
+  if (await isPnpmGlobalPackageRoot(pkgRoot)) {
+    return "pnpm";
   }
 
   const bunGlobalRoot = resolveBunGlobalRoot();
@@ -649,7 +696,13 @@ export function globalInstallArgs(
 ): string[] {
   const resolved = normalizeGlobalInstallCommand(managerOrCommand, pkgRoot);
   if (resolved.manager === "pnpm") {
-    return [resolved.command, "add", "-g", spec];
+    return [
+      resolved.command,
+      "add",
+      "-g",
+      ...(installPrefix ? ["--global-dir", installPrefix] : []),
+      spec,
+    ];
   }
   if (resolved.manager === "bun") {
     return [resolved.command, "add", "-g", spec];
