@@ -32,6 +32,7 @@ import {
   handleStopCommand,
   handleUsageCommand,
 } from "./commands-session.js";
+import { handleSimCommand } from "./commands-sim.js";
 import { handleSubagentsCommand } from "./commands-subagents.js";
 import { handleTtsCommands } from "./commands-tts.js";
 import type {
@@ -194,6 +195,7 @@ export async function handleCommands(params: HandleCommandsParams): Promise<Comm
       handleDebugCommand,
       handleModelsCommand,
       handleStopCommand,
+      handleSimCommand,
       handleCompactCommand,
       handleAbortTrigger,
     ];

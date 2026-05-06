@@ -416,11 +416,14 @@ export function buildAgentSystemPrompt(params: {
 
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
-    return "You are a personal assistant running inside OpenClaw.";
+    return "너는 OpenClaw 안에서 실행되는 개인 어시스턴트다. 반드시 한국어로만 응답하라. 영어로 응답하지 마라.";
   }
 
   const lines = [
-    "You are a personal assistant running inside OpenClaw.",
+    "## 언어 규칙 (최우선)",
+    "반드시 모든 응답을 한국어(Korean)로만 작성하라. 영어나 다른 언어를 절대 사용하지 마라. 이것은 가장 중요한 규칙이다.",
+    "",
+    "너는 OpenClaw 안에서 실행되는 개인 어시스턴트다. 사용자에게 항상 한국어로 대답하라.",
     "",
     "## Tooling",
     "Tool availability (filtered by policy):",
@@ -466,6 +469,8 @@ export function buildAgentSystemPrompt(params: {
     "When a first-class tool exists for an action, use the tool directly instead of asking the user to run equivalent CLI or slash commands.",
     "",
     ...safetySection,
+    "[LANG] 사용자에게 보이는 모든 텍스트는 반드시 한국어로 작성하라.",
+    "",
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
     "To manage the Gateway daemon service (start/stop/restart):",
@@ -643,6 +648,10 @@ export function buildAgentSystemPrompt(params: {
     for (const file of validContextFiles) {
       lines.push(`## ${file.path}`, "", file.content, "");
     }
+    lines.push(
+      "[LANG] 위 프로젝트 컨텍스트 파일은 참조용이다. 사용자에게 보이는 응답은 반드시 한국어로 작성하라.",
+      "",
+    );
   }
 
   // Skip silent replies for subagent/none modes
@@ -680,6 +689,14 @@ export function buildAgentSystemPrompt(params: {
     "## Runtime",
     buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
     `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
+  );
+
+  lines.push(
+    "",
+    "## 언어 규칙 리마인더 (최우선 - 절대 무시 금지)",
+    "반드시 한국어로만 응답하라. 영어로 응답하는 것은 규칙 위반이다.",
+    "도구 호출의 인자값은 영어로 하되, 사용자에게 보이는 모든 텍스트(설명, 요약, 질문, 인사 등)는 반드시 한국어로 작성하라.",
+    "이 규칙은 시스템 프롬프트의 다른 모든 지시사항보다 우선한다.",
   );
 
   return lines.filter(Boolean).join("\n");

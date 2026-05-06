@@ -720,6 +720,13 @@ function buildChatCommands(): ChatCommandDefinition[] {
       formatArgs: COMMAND_ARG_FORMATTERS.queue,
     }),
     defineChatCommand({
+      key: "sim",
+      description: "베트맨 모의배팅 게임일정 조회.",
+      textAlias: "/sim",
+      scope: "text",
+      category: "tools",
+    }),
+    defineChatCommand({
       key: "bash",
       description: "Run host shell commands (host-only).",
       textAlias: "/bash",
