@@ -24,10 +24,7 @@ import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../../../plugins/command-registry-state.js";
 import { buildAgentHookContextChannelFields } from "../../../plugins/hook-agent-context.js";
-import {
-  DEFAULT_BLOCK_MESSAGE,
-  resolveBlockMessage,
-} from "../../../plugins/hook-decision-types.js";
+import { resolveBlockMessage } from "../../../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import {
   extractModelCompat,
@@ -2855,10 +2852,18 @@ export async function runEmbeddedAttempt(
               beforeAgentRunBlocked = true;
               beforeAgentRunBlockedBy = "before_agent_run";
               await persistBlockedBeforeAgentRun({
-                message: `${DEFAULT_BLOCK_MESSAGE} by before_agent_run`,
+                message: resolveBlockMessage(
+                  { outcome: "block", reason: "before_agent_run hook failed" },
+                  { blockedBy: "before_agent_run" },
+                ),
                 pluginId: "before_agent_run",
               });
-              promptError = new Error(`${DEFAULT_BLOCK_MESSAGE} by before_agent_run`);
+              promptError = new Error(
+                resolveBlockMessage(
+                  { outcome: "block", reason: "before_agent_run hook failed" },
+                  { blockedBy: "before_agent_run" },
+                ),
+              );
               promptErrorSource = "hook:before_agent_run";
               skipPromptSubmission = true;
             }
