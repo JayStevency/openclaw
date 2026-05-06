@@ -24,7 +24,10 @@ import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../../../plugins/command-registry-state.js";
 import { buildAgentHookContextChannelFields } from "../../../plugins/hook-agent-context.js";
-import { resolveBlockMessage } from "../../../plugins/hook-decision-types.js";
+import {
+  DEFAULT_BLOCK_MESSAGE,
+  resolveBlockMessage,
+} from "../../../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import {
   extractModelCompat,
@@ -735,8 +738,14 @@ export async function runEmbeddedAttempt(
   let timedOutDuringToolExecution = false;
   let promptError: unknown = null;
   let emitDiagnosticRunCompleted:
-    | ((outcome: "completed" | "aborted" | "error", err?: unknown) => void)
+    | ((
+        outcome: "completed" | "aborted" | "blocked" | "error",
+        err?: unknown,
+        extra?: { blockedBy?: string },
+      ) => void)
     | undefined;
+  let beforeAgentRunBlocked = false;
+  let beforeAgentRunBlockedBy: string | undefined;
   try {
     const skillsSnapshotForRun =
       sandbox?.enabled && sandbox.workspaceAccess !== "rw" ? undefined : params.skillsSnapshot;
@@ -799,7 +808,7 @@ export async function runEmbeddedAttempt(
     });
     const diagnosticRunStartedAt = Date.now();
     let diagnosticRunCompleted = false;
-    emitDiagnosticRunCompleted = (outcome, err) => {
+    emitDiagnosticRunCompleted = (outcome, err, extra) => {
       if (diagnosticRunCompleted) {
         return;
       }
@@ -809,7 +818,8 @@ export async function runEmbeddedAttempt(
         ...diagnosticRunBase,
         durationMs: Date.now() - diagnosticRunStartedAt,
         outcome,
-        ...(err ? { errorCategory: diagnosticErrorCategory(err) } : {}),
+        ...(extra?.blockedBy ? { blockedBy: extra.blockedBy } : {}),
+        ...(err && outcome !== "blocked" ? { errorCategory: diagnosticErrorCategory(err) } : {}),
       });
     };
     const corePluginToolStages = createEmbeddedRunStageTracker();
@@ -2784,7 +2794,6 @@ export async function runEmbeddedAttempt(
           const persistBlockedBeforeAgentRun = async (block: {
             message: string;
             pluginId: string;
-            reason: string;
           }): Promise<boolean> => {
             const idempotencyKey = `hook-block:before_agent_run:user:${params.runId}`;
             if (sessionMessagesContainIdempotencyKey(activeSession.messages, idempotencyKey)) {
@@ -2799,7 +2808,6 @@ export async function runEmbeddedAttempt(
               __openclaw: {
                 beforeAgentRunBlocked: {
                   blockedBy: block.pluginId,
-                  reason: block.reason,
                   blockedAt: nowMs,
                 },
               },
@@ -2844,26 +2852,30 @@ export async function runEmbeddedAttempt(
               );
             } catch (err) {
               log.warn(`before_agent_run hook failed: ${formatErrorMessage(err)}`);
+              beforeAgentRunBlocked = true;
+              beforeAgentRunBlockedBy = "before_agent_run";
               await persistBlockedBeforeAgentRun({
-                message: "Request blocked by before_agent_run policy.",
+                message: `${DEFAULT_BLOCK_MESSAGE} by before_agent_run`,
                 pluginId: "before_agent_run",
-                reason: "before_agent_run hook failed closed",
               });
-              promptError = new Error("Request blocked by before_agent_run policy.");
+              promptError = new Error(`${DEFAULT_BLOCK_MESSAGE} by before_agent_run`);
               promptErrorSource = "hook:before_agent_run";
               skipPromptSubmission = true;
             }
             const beforeRunDecision = beforeRunResult?.decision;
             const beforeRunPluginId = beforeRunResult?.pluginId ?? "unknown";
             if (beforeRunDecision?.outcome === "block") {
-              const blockReplacementMsg = resolveBlockMessage(beforeRunDecision);
+              beforeAgentRunBlocked = true;
+              beforeAgentRunBlockedBy = beforeRunPluginId;
+              const blockReplacementMsg = resolveBlockMessage(beforeRunDecision, {
+                blockedBy: beforeRunPluginId,
+              });
               log.warn(
                 `before_agent_run hook blocked by ${beforeRunPluginId}: ${beforeRunDecision.reason}`,
               );
               await persistBlockedBeforeAgentRun({
                 message: blockReplacementMsg,
                 pluginId: beforeRunPluginId,
-                reason: beforeRunDecision.reason,
               });
               promptError = new Error(blockReplacementMsg);
               promptErrorSource = "hook:before_agent_run";
@@ -3776,12 +3788,19 @@ export async function runEmbeddedAttempt(
         cleanupError = err;
       }
       emitDiagnosticRunCompleted?.(
-        cleanupError || promptError
+        cleanupError
           ? "error"
-          : aborted || timedOut || idleTimedOut || timedOutDuringCompaction
-            ? "aborted"
-            : "completed",
+          : beforeAgentRunBlocked
+            ? "blocked"
+            : promptError
+              ? "error"
+              : aborted || timedOut || idleTimedOut || timedOutDuringCompaction
+                ? "aborted"
+                : "completed",
         cleanupError ?? promptError,
+        beforeAgentRunBlocked
+          ? { blockedBy: beforeAgentRunBlockedBy ?? "before_agent_run" }
+          : undefined,
       );
       if (cleanupError) {
         await Promise.reject(cleanupError);
